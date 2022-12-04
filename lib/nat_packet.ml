@@ -211,13 +211,15 @@ let pp_transport f = function
       Icmpv4_packet.pp icmp
       pp_icmp payload
   | `TCP (tcp, payload) ->
+    let l = min 10 (Cstruct.length payload) in
     Fmt.pf f "%a with payload %a"
       Tcp.Tcp_packet.pp tcp
-      Cstruct.hexdump_pp payload
+      Cstruct.hexdump_pp (Cstruct.sub payload 0 l)
   | `UDP (udp, payload) ->
+    let l = min 10 (Cstruct.length payload) in
     Fmt.pf f "%a with payload %a"
       Udp_packet.pp udp
-      Cstruct.hexdump_pp payload
+      Cstruct.hexdump_pp (Cstruct.sub payload 0 l)
 
 let pp f = function
   | `IPv4 (ip, transport) ->
