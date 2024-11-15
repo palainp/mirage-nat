@@ -35,15 +35,17 @@ module Main
      interfaces. *)
   module Public_routing = Routing.Make(Log)(Public_arpv4)
   module Private_routing = Routing.Make(Log)(Private_arpv4)
-
+  
   (* the specific impls we're using show up as arguments to start. *)
   let start public_netif private_netif
             public_ethernet private_ethernet
             public_arpv4 private_arpv4
             public_leasev4 private_ipv4 _rng () =
 
-    let (public_ipv4, public_gw) = public_leasev4 in
-    let public_network = Ipaddr.V4.Prefix.make 0 public_ipv4 in
+    let public_gw = public_leasev4.Public_static.gateway in
+    let public_network = public_leasev4.Public_static.t.cidr in
+    let public_ipv4 = List.hd (Public_ipv4.configured_ips public_network) in
+    let private_network = K.private_ipv4 () in
 
     (* if writing a packet into a given memory buffer failed,
        log the failure, pass information on how much was written
@@ -91,8 +93,7 @@ module Main
 
     let output_private packet =
       (* For IPv4 only one prefix can be configured so the list is always of length 1 *)
-      let network = K.private_ipv4 () in
-      Private_routing.destination_mac network None private_arpv4 (Util.get_dst packet) >>= function
+      Private_routing.destination_mac private_network None private_arpv4 (Util.get_dst packet) >>= function
       | Error _ ->
         Log.debug (fun f -> f "Could not send a packet from the private interface to the local network,\
                                 as a failure occurred on the ARP layer");
