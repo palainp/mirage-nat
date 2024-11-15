@@ -1,9 +1,14 @@
 open Lwt.Infix
 open Cmdliner
 
-let public_ipv4_gw =
-  let doc = Arg.info ~doc:"Manual Gateway IP setting." [ "public-ipv4-gw" ] in
-  Arg.(value & opt string "0.0.0.0" doc)
+module K = struct
+  open Cmdliner
+
+  let private_ipv4 =
+    Mirage_runtime.register_arg
+      (Mirage_runtime_network.V4.network
+         (Ipaddr.V4.Prefix.of_string_exn "10.0.0.2/24"))
+end
 
 module Main
     (* our unikernel is functorized over the physical, ethernet, ARP, and IPv4
@@ -35,8 +40,10 @@ module Main
   let start public_netif private_netif
             public_ethernet private_ethernet
             public_arpv4 private_arpv4
-            public_ipv4 private_ipv4 _rng ()
-            public_ipv4_gw =
+            public_leasev4 private_ipv4 _rng () =
+
+    let (public_ipv4, public_gw) = public_leasev4 in
+    let public_network = Ipaddr.V4.Prefix.make 0 public_ipv4 in
 
     (* if writing a packet into a given memory buffer failed,
        log the failure, pass information on how much was written
@@ -53,12 +60,7 @@ module Main
        private interfaces so we don't have to think about ARP later, when we'll 
        be trying to think hard about translations. *)
     let output_public packet =
-      let gateway = if (String.equal public_ipv4_gw "0.0.0.0") then None
-                    else Some (Ipaddr.V4.of_string_exn public_ipv4_gw)
-      in
-      (* For IPv4 only one prefix can be configured so the list is always of length 1 *)
-      let network = List.hd (Public_ipv4.configured_ips public_ipv4) in
-      Public_routing.destination_mac network gateway public_arpv4 (Util.get_dst packet) >>= function
+      Public_routing.destination_mac public_network public_gw public_arpv4 (Util.get_dst packet) >>= function
       | Error `Local ->
         Log.debug (fun f -> f "Could not send a packet from the public interface to the local network,\
                                 as a failure occurred on the ARP layer");
@@ -89,7 +91,7 @@ module Main
 
     let output_private packet =
       (* For IPv4 only one prefix can be configured so the list is always of length 1 *)
-      let network = List.hd (Private_ipv4.configured_ips private_ipv4) in
+      let network = K.private_ipv4 () in
       Private_routing.destination_mac network None private_arpv4 (Util.get_dst packet) >>= function
       | Error _ ->
         Log.debug (fun f -> f "Could not send a packet from the private interface to the local network,\
